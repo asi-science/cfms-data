@@ -215,11 +215,78 @@ band92_22$Net <- recode(band92_22$Net, 'net # missing'="Unknown", '19l'="19L", '
 
 # Subset to investigate suspect or older net numbers
 nets <- band92_22[band92_22$Net %in% c("0", "0.9", "2L", "50", "56", "73", "266", "910", "98", "99"),]
+nets2 <- band92_22[band92_22$Net %in% c("5", "19", "25"),]
 #99 and 0 can be recorded to 'unknown', as they appear to have been captured as part of regular mist netting operation; others will need investigation
+# Sites 5, 19, and 25 with unspecified nets (l/m/u) for 1000+ records, especially in 2018 and 2017. Will just leave as is for now.
 
-band92_22$Net <- recode(band92_22$Net, '0'="Unknown", '99'="Unknown", '910'="9", '56'="5L", '50'="5U", '266'="266")
+
+band92_22$Net <- recode(band92_22$Net, '0'="Unknown", '99'="Unknown", '910'="9", '56'="5L", '50'="5U", '266'="26", "2L"="3L", "73"="23", "98"="Unknown")
+
+# Checking some more records, from 1999. Net numbers post '99 should correspond with current net numbers:
+# 35637 is unknown, 36018 is net 11, 36729 is unknown, 37497 is net 9, 37645 is unknown
+
+band92_22[35637, "Net"]="Unknown"
+band92_22[36018, "Net"]=11
+band92_22[36729, "Net"]="Unknown"
+band92_22[37497, "Net"]=9
+band92_22[37645, "Net"]="Unknown"
+band92_22[39032, "Net"]="Unknown"
+band92_22[41562, "Net"]=9
+
 levels(band92_22$Net)
 
+
+
+# Preview some band numbers. Let's look at band numbers under certain sizes
+bands8 <- subset(band92_22, nchar(band92_22$Band)==8)
+# There are a number of records with 8 digit band numbers, generally from the same string. I suspect that these may simply have leading 0s?
+bands7 <- subset(band92_22, nchar(band92_22$Band)==7)
+# One SCJU recap missing last two digits. This one cant be determined easily. Also string of size 1s from '94 systematically missing two digits, not sure where
+bands4 <- subset(band92_22, nchar(band92_22$Band)==4)
+bands2 <- subset(band92_22, nchar(band92_22$Band)==2)
+# Investigate 2013 records and 2000 records
+# 2013 BOCH recapture missing suffix band number.
+
+
+
+# Work on adding updating Season info
+band92_22$Season <- as.factor(band92_22$Season)
+spring <- subset(band92_22, Season==1)
+summer <- subset(band92_22, Season==2)
+fall <- subset(band92_22, Season==3)
+noseason <- subset(band92_22, Season=="")
+
+# Spring should be all dates up to and ending on Jun 7
+# Summer/fall will be harder to define. Generally, there's a July 15 distinction for start of fall, though some analyses have grouped "fall" as August 1.
+# For this master database, it's better to define seasons by the effort (eg fall as the start of regularly daily or near-daily migration period, or training beforehand)
+# Some records with spring banding dates are assigned the fall season code
+
+band92_22$Season <- as.factor(band92_22$Season)
+
+# Conditional recoding here seems somewhat complicated, so I'm just going to create a dummy "old Season" folder for now, and set up new season
+band92_22$Old_Season <- band92_22$Season
+
+# For now, approach should be to assign *every* record between April to Jun 7 as spring. Otherwise, establish fall season for blank records post 2018, where there's clear understanding of when fall season starts
+
+band92_22 <- band92_22  %>% 
+  mutate(
+    Season = case_when(Month %in% '4':'5'| Month == '6' & Day <='7'~'1', 
+                       Month %in% '8':'9'| Month == '7' & Day >= '29' & Year>='2018'~'3',
+                       TRUE~Season))
+
+
+
+
+
+# Skull
+unique(band92_22$SK)
+noskull <- subset(band92_22, SK == "0")
+
+
+# Some skulls recorded as 0 should be blank. Especially for AHY or U age. Could spot check with some raw data to confirm 
+# Change skull to factor
+
+band92_22$SK <- as.factor(band92_22$SK)
 # Capture time
 levels(band92_22$Time)
 # Many levels with times not at 5-minute periods, but okay to leave as is I think. Questionable record of "3:12", this was daytime capture and could be manually proofed

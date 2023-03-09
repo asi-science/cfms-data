@@ -263,8 +263,8 @@ noseason <- subset(band92_22, Season=="")
 
 band92_22$Season <- as.factor(band92_22$Season)
 
-# Conditional recoding here seems somewhat complicated, so I'm just going to create a dummy "old Season" folder for now, and set up new season
-band92_22$Old_Season <- band92_22$Season
+# Conditional re-coding here seems somewhat complicated, so I'm just going to create a dummy "old Season" folder for now, and set up new season
+# band92_22$Old_Season <- band92_22$Season
 
 # For now, approach should be to assign *every* record between April to Jun 7 as spring. Otherwise, establish fall season for blank records post 2018, where there's clear understanding of when fall season starts
 
@@ -276,21 +276,135 @@ band92_22 <- band92_22  %>%
 
 
 
-
-
-# Skull
-unique(band92_22$SK)
-noskull <- subset(band92_22, SK == "0")
-
-
-# Some skulls recorded as 0 should be blank. Especially for AHY or U age. Could spot check with some raw data to confirm 
-# Change skull to factor
-
-band92_22$SK <- as.factor(band92_22$SK)
 # Capture time
 levels(band92_22$Time)
 # Many levels with times not at 5-minute periods, but okay to leave as is I think. Questionable record of "3:12", this was daytime capture and could be manually proofed
 # Confirm that nocturnal times are for owl banding. 
+
+notime <- band92_22[band92_22$Time %in% c("#NAME?", "#VALUE!"),]
+night <- band92_22[band92_22$Time %in% c("20:00:00","3:12:00","21:00:00","22:00:00","0:00:00","0:30:00","1:00:00","1:30:00"),]
+# Looks like these measurements are all mis-transcribed daytime encounters. Directly change 1:00/1:30 times to 24 hr designation; correct others by verifying in raw data
+# 2021, 2022 0:00 times should be changed to blank, same with anything destroyed band record with 0:00 time. 
+# Check 2010 thru 2013 records
+
+band92_22$Time <- recode(band92_22$Time, '1:00:00'="13:00:00", '1:30:00'="13:30:00")
+
+band92_22 <- band92_22 %>%
+  mutate(
+    Time=case_when(Time=="#NAME?" & SPP=="BALO"~"",
+                   Time=="#VALUE!" & SPP=="BADE"~"",
+                   TRUE~Time),
+    Time=as.factor(Time))
+
+
+band92_22 <- band92_22 %>%
+  mutate(
+    Time=case_when(Time=="0:00:00" & Year>="2021"~"",
+                   Time=="0:00:00" & SPP=="BADE"~"",
+                   TRUE~Time),
+    Time=as.factor(Time))
+
+
+# line by line adjustments
+band92_22[80349, "Time"]="6:30:00"
+band92_22[105546, "Time"]="12:00:00"
+band92_22[105246, "Time"]="12:00:00"
+band92_22[83337, "Time"]="12:00:00"
+band92_22[107486, "Time"]="10:00:00"
+band92_22[107718, "Time"]="11:00:00"  
+band92_22[111658, "Time"]="12:30:00"  
+band92_22[10987, "Time"]="12:30:00"
+band92_22[10988, "Time"]="12:30:00"
+band92_22[10990, "Time"]="12:30:00"
+band92_22[10991, "Time"]="12:30:00"
+band92_22[10852, "Time"]="12:00:00"
+band92_22[11223, "Time"]="12:00:00"
+
+
+
+# Age
+levels(band92_22$Age)
+
+levels(band92_22$HA1)
+levels(band92_22$HA2)
+
+# Some corrections to make. Check some weird codes.
+
+badHA1 <- band92_22[band92_22$HA1 %in% c("BAND", "BP/CP", "VM", "SS"),]
+unkHA1 <- band92_22[band92_22$HA1 %in% c("unk", "U"),]
+badHA2 <- band92_22[band92_22$HA2 %in% c("0", "3", ";"),]
+
+# Let's screen some age/skull mismatches
+# Apply this to data from 2006-on, as numbering system for a lot of codes was changed in 2006
+
+age.skull.unk <- subset(band92_22, Year>=2006 & Age=="U" & SK < "4" & SK !="")
+
+# I am also wary of some "0" skull values as they could be mistaken unrecorded measurements--eg in above subset, skull=0 for a return record (so bird should be AHY), as well as for an unbanded bird
+# Correct age scores for other skull values here:
+
+band92_22 <- band92_22 %>%
+  mutate(Age = case_when(SK > "0" & SK < "4" & Year>=2006 ~ "HY",
+         TRUE~Age),
+         HA1 = case_when(SK > "0" & SK < "4" & Year>=2006 ~ "S",
+                         TRUE~HA1))
+
+# Now check for birds aged AHY despite having incomplete skulls
+age.skull <- subset(band92_22, Year>=2006 & Age!="HY" & SK <"4" & SK !="")
+# Doesn't appear to be any other bad skull/age assignments, all these records have SK=0. Suspect some should actually be unknown/blank values
+
+#Check some How Aged codes
+
+# Any U/unknown How Aged codes cab be changed to blank
+band92_22$HA1 <- recode(band92_22$HA1, 'unk'="", 'U'="", 'CP'="C", 'BP'="B", 'v'="V", 'JP'="J")
+band92_22$HA2 <- recode(band92_22$HA2, 'unk'="", 'U'="", 'CP'="C", 'BP'="B", 'v'="V", 'j'="J", '0'="0", '3'="3")
+
+# CP/BP appears to be code used in 2015, ideally this should be changed to "B" or "C" respectively
+
+# Sex
+levels(band92_22$Sex)
+# Check a few bad codes
+sex <- band92_22[band92_22$Sex %in% c("L", "A"),]
+band92_22[122878, "HA2"]=""
+band92_22[123078, "HA2"]=""
+band92_22[121706, "HA2"]=""
+band92_22[122878, "Sex"]="M"
+band92_22[123078, "Sex"]="M"
+band92_22[121706, "Sex"]="F"
+band92_22[122878, "HS1"]="L"
+band92_22[123078, "HS1"]="L"
+band92_22[121706, "HS1"]="P"
+
+band92_22$Sex <- recode(band92_22$Sex, 'u'="U")
+
+# Check some How Sexed codes:
+levels(band92_22$HS1)
+levels(band92_22$HS2)
+
+unkHS1 <- band92_22[band92_22$HS1 %in% c("unk", "U"),]
+unkHS2 <- band92_22[band92_22$HS2 %in% c("unk", "U"),]
+badHS2 <- band92_22[band92_22$HS2 %in% c("0", "57"),]
+
+band92_22$HS1 <- recode(band92_22$HS1, 'u'="", "U"="", "unk"="", "CP"="C" )
+band92_22$HS2 <- recode(band92_22$HS2, "U"="", "unk"="", "CP"="C", "57"="", "0"="", "BP"="B")
+
+# More sex adjustments: change blanks to U where appropriate (leave blank for BADE and BALO)
+nosex <- band92_22[band92_22$Sex %in% c(""),]
+levels(nosex$SPP)
+
+band92_22 <- band92_22 %>%
+  mutate(Sex = case_when(Sex=="" & SPP!="BADE" & SPP!="BALO" ~ "U",
+                         TRUE~Sex))
+
+
+# Skull
+unique(band92_22$SK)
+
+# Change skull to factor
+
+band92_22$SK <- as.factor(band92_22$SK)
+
+
+
 
 
 

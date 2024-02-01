@@ -1,7 +1,4 @@
-# Working on merging all years CFMS data 
-
-#################
-
+# Merging and Preparing Old Dataframes ####
 # Step 1: add 2019-21 ("New") data to 92-18 ("Old") data
 
 library(readr)
@@ -9,8 +6,8 @@ band19_21 <- read_csv("CFMS19_21.csv", na = "empty")
 band92_18 <- read.csv("CFMS92_18.copy.csv", header=T, strip.white=T, as.is=T)
 
 
-#################
-
+###
+###
 
 # Get rid of NAs
 band92_18[is.na(band92_18)] <- ""
@@ -71,16 +68,17 @@ length(which(band92_21$Time=="#VALUE!"))
 
 
 
-#########################################
-#
+# All years database, pre-cleaning ####
 # Step 2: 1992-2022 data assembled, can be further cleaned below
 
 # Initial call of "unclean" copy of 92-22 data
 band92_22 <- read.csv("CFMS92_22_unclean.csv", stringsAsFactors = T)
 band92_22[is.na(band92_22)] <- ""
 
-#########################################
-#########################################
+###
+###
+###
+# Read and write working database version ####
 
 # As I continue to clean data, I can save and call the 'working' version of the file
 library(readr)
@@ -90,17 +88,52 @@ band92_22 <- read.csv("CFMS92_22_Working.csv", stringsAsFactors = T)
 band92_22[is.na(band92_22)] <- ""
 
 library(dplyr)
+
+
 # Check to see how certain categorical variables are named etc
 
+# Initial check and clean: Code, Status, Species ####
 levels(band92_22$Code)
 # May need to investigate "" results. Also some "destroyed" codes have species encounter data 
 # **UNRESOLVED:** about 50 blanks from various years, probably mostly recaps 
+
+destroy <- band92_22[(band92_22$Code=="destroy"),]
+nocode <- band92_22[(band92_22$Code==""),]
+# Three Sept 2017 records listed as "other" w/ single-digit band sizes should probably be recoded as unbanded; no record of any missing corresponding band numbers
+
+
+
+# May check recap/return status band number by band number
+recaps16 <- band92_22[(band92_22$Band %in% c('225198949', '225198951', '249062543', '262137045')),] 
+
+band92_22 <- band92_22 %>%
+  mutate(Code=case_when(BandSize=="R" & Code=="" & Band!='262137045' ~ "recap",
+                        TRUE~Code))
+ 
+
+
 
 levels(band92_22$SPP)
 # Will need to change GRAJ to CAJA, check unknowns etc. Reflects 2022 AOU codes
 
 band92_22$SPP <- recode(band92_22$SPP, 'GRAJ'="CAJA", 'GOSH' = "NOGO", 'unk'="UNKN", 'UNKNOWN'="UNKN")
 band92_22$SPP <- recode(band92_22$SPP, 'GROUSE'="UNGR", 'NSHO'="NOSH")
+
+wcsp <- band92_22[(band92_22$SPP=='WCSP'),]
+band92_22 <- band92_22 %>% 
+  mutate(SPP=case_when(SPP=='WCSP' & SpName=='Gambel\'s White-crowned Sparrow' ~ "GWCS",
+         TRUE~SPP)) %>%
+  mutate(SpName=case_when(SPP=='WCSP'~"White-crowned Sparrow", TRUE~SpName),
+         SPP=as.factor(SPP), 
+         SpName=as.factor(SpName))
+
+
+unkspp <- band92_22[band92_22$SPP %in% c ("", "UNKN"),]
+# 2020 record is unidentified net mortality and is properly accounted for
+# other records, like 2019, lack context and will be deleted...outright deletion and correction of records should occur at very end of this script to avoid confounding with row number based adjustments earlier in script
+band92_22 <- band92_22 %>%
+  mutate(SPP=case_when(Code=="destroy" & SPP=="" ~ "BADE",
+                       TRUE~SPP))
 
 
 band92_22$Status <- as.factor(band92_22$Status)
@@ -138,6 +171,9 @@ band92_22$Status <- recode(band92_22$Status, '319'="2", '315'="1", '0'="")
 # Use gsub() function to drop any appended 'NAs'
 
 
+
+# Initial check and clean: additional default/metadata ####
+
 # 2/23: Going through from the top, checking consistency
 # Station. Double check that 'CRF' can be transformed to 
 crf <- band92_22[band92_22$Station %in% c("CRF"),]
@@ -147,9 +183,156 @@ band92_22$Station <- recode(band92_22$Station, 'CRF'="CFMS")
 band92_22$Station <- sub("^$", "CFMS", band92_22$Station)
 band92_22$Station <- as.factor(band92_22$Station)
 
+###
 # Band Sizes. *UNRESOLVED* Will need to figure out "unknown" band sizes
 band92_22$BandSize <- recode(band92_22$BandSize, 'Recap'="R")
 levels(band92_22$BandSize)
+
+# Assign sizes for blanks
+nosize <- band92_22[(band92_22$BandSize==""),]
+# Lots of blanks, might take a lot of work to adjust
+# Can at least add for any recap codes
+
+band92_22 <- band92_22 %>%
+  mutate(BandSize=case_when(Code %in% c('foreign', 'recap', 'inreturn', 'return') & BandSize=='' ~ "R",
+         TRUE~BandSize))
+
+levels(nosize$Code)
+# To extract BandSize info from page numbers, I could create a new column filled with the suffix from page number
+# This would lead to straightforward mutation command and I could then delete new column
+
+band92_22$page_size <- substr(band92_22$Pages, 1,2)
+unique(band92_22$page_size)
+
+band92_22 <- band92_22 %>%
+  mutate(BandSize = case_when(BandSize=='' & page_size=='0A'~"0A",
+                              BandSize=='' & page_size=='0-'~"0",
+                              BandSize=='' & page_size=='2-'~"2",
+                              BandSize=='' & page_size=='1A'~"1A",
+                              BandSize=='' & page_size=='3A'~"3A",
+                              BandSize=='' & page_size=='1B'~"1B",
+                              BandSize=='' & page_size=='R-'~"R",
+                              BandSize=='' & page_size=='U-'~"U",
+                              BandSize=='' & page_size=='1-'~"1",
+                              BandSize=='' & page_size=='3-'~"3",
+                              BandSize=='' & page_size=='3B'~"3B",
+                              BandSize=='' & page_size=='1C'~"1C",
+                              TRUE~BandSize))
+
+# Check remaining page number categories without band sizes
+# After each of these mutation rounds I can repeat the command below and continue:
+nosize$page_size <- substr(nosize$Pages, 1,2)
+unique(nosize$page_size)
+
+# I won't change the 'weird' page codes, but will subset from the broader data to see which need band sizes filled. Some are just likely bigger sizes but want to confirm
+weirdpage <- band92_22[band92_22$page_size %in% c('1/', '1S', '2S', '5-', '02', '4-', '7a', '2/', '7A', '3/', 'CF', '4/'),]
+# Pretty much all of these codes correspond to their band size, so I can change this too. 'CF' prefix has a few records where the band size is at the *end* of the page number
+
+
+band92_22 <- band92_22 %>%
+  mutate(BandSize = case_when(BandSize=='' & page_size=='1/'~"1",
+                              BandSize=='' & page_size=='1S-'~"1",
+                              BandSize=='' & page_size=='2S'~"2",
+                              BandSize=='' & page_size=='5-'~"5",
+                              BandSize=='' & page_size=='02'~"2",
+                              BandSize=='' & page_size=='4-'~"4",
+                              BandSize=='' & page_size=='7a'~"7A",
+                              BandSize=='' & page_size=='2/'~"2",
+                              BandSize=='' & page_size=='7A'~"7A",
+                              BandSize=='' & page_size=='3/'~"3",
+                              BandSize=='' & page_size=='4/'~"4",
+                              TRUE~BandSize))
+
+
+# Checking more pages/sizes...
+# The pages with the xF/xS prefixes are pretty much all from 1992. 
+# Spring 2018 has some blank pages/blank band size combos; these can mostly be done species by species
+
+band92_22 <- band92_22 %>%
+  mutate(BandSize = case_when(BandSize=='' & Year=='2018' & SPP=='SCJU'~"1",
+                              BandSize=='' & Year=='2018' & SPP=='ATSP'~"1",
+                              BandSize=='' & Year=='2018' & SPP=='SAVS'~"1",
+                              BandSize=='' & Year=='2018' & SPP=='LISP'~"1",
+                              BandSize=='' & Year=='2018' & SPP=='BLPW'~"1",
+                              BandSize=='' & Year=='2018' & SPP=='WCSP'~"1B",
+                              BandSize=='' & Year=='2018' & SPP=='SWTH'~"1B",
+                              BandSize=='' & Year=='2018' & SPP=='BCCH'~"0",
+                              BandSize=='' & Year=='2018' & SPP=='AMRO'~"2",
+                              BandSize=='' & Year=='2018' & SPP=='HAWO'~"2",
+                              BandSize=='' & Year=='2018' & SPP=='SOSA'~"1A",
+                              BandSize=='' & Year=='2018' & SPP=='SSHA'~"3",
+                              BandSize=='' & Year=='2018' & SPP=='NOWA'~'1',
+                              BandSize=='' & Year=='2018' & grepl('26800', Band) ~ '0A',
+                              BandSize=='' & Year=='2018' & SPP=='HAFL' ~ '0A',
+                              TRUE~BandSize))
+# *in above code, realized partway through that I could use a grepl() function to consolidate by certain band predixes
+# Continue with blank page records in 2015, 2014 based on band string prefixes; can simplify and exclude years from commands:
+
+band92_22 <- band92_22 %>%
+  mutate(BandSize = case_when(BandSize=='' & grepl('262137', Band) ~"1",
+                              BandSize=='' & grepl('251141', Band) ~"1",
+                              BandSize=='' & grepl('251142', Band) ~"1",
+                              BandSize=='' & grepl('249062', Band) ~"0",
+                              BandSize=='' & grepl('249061', Band) ~"0",
+                              BandSize=='' & grepl('249091', Band) ~"0",
+                              BandSize=='' & grepl('263015', Band)~"0A",
+                              BandSize=='' & grepl('15812', Band)~"1A",
+                              BandSize=='' & grepl('123295', Band)~"2",
+                              BandSize=='' & grepl('138340', Band)~"3",
+                              BandSize=='' & grepl('248047', Band)~"0A",
+                              BandSize=='' & grepl('248046', Band)~"0A",
+                              BandSize=='' & grepl('246059', Band)~"0A",
+                              BandSize=='' & grepl('246060', Band)~"0A",
+                              BandSize=='' & grepl('225196', Band) ~"1B",
+                              BandSize=='' & grepl('225197', Band) ~"1B",
+                              BandSize=='' & grepl('225198', Band) ~"1B",
+                              BandSize=='' & grepl('231122', Band)~"1",
+                              BandSize=='' & grepl('123217', Band)~"2",
+                              BandSize=='' & grepl('129397', Band)~"3A",
+                              BandSize=='' & grepl('221117', Band)~"1A",
+                              BandSize=='' & grepl('123296', Band)~"2",
+                              BandSize=='' & grepl('231123', Band)~"1",
+                              BandSize=='' & Code=='unbanded' & Band==''~"U",
+                              BandSize=='' & grepl('2460', Band) & SPP=='BOCH'~"0",
+                              TRUE~BandSize))
+                              
+# Check 2022 sizes
+band22 <- band92_22[(band92_22$Year>='2021'),]
+unique(band22$BandSize)
+# Looks like I didn't get most Page numbers and Band sizes extracted from the 2022 data ...
+
+# Realized I could nest case_when conditions to make syntax tidier: 
+band92_22 <- band92_22 %>% 
+  mutate(BandSize = case_when(BandSize=="" ~ case_when(
+    Year=="2022" ~ case_when(
+      grepl('2900589', Band) ~ "0A",
+      grepl('290059', Band) ~ "0A",
+      grepl('285065', Band)~ "0",
+      grepl('282014', Band) ~ "0",
+      grepl('281178', Band) ~ "1",
+      grepl('281123', Band) ~ "1",
+      grepl('291022', Band) ~ "0A",
+      grepl('249063', Band) ~"0",
+      grepl('225199', Band) ~ "1B",
+      grepl('255142', Band) ~"1B",
+      grepl('301114', Band) ~ "1B",
+      grepl('123216', Band) ~ "2",
+      grepl('200392', Band) ~ "3B",
+      TRUE~BandSize
+    ), TRUE ~ BandSize
+  ), TRUE~BandSize))
+  
+unique(nosize$Year)
+# 2015 has one record w/ no size, some BADE in 2010, and 2006. Anything earlier may either be mortalities or early-year CFMS data
+
+# Adjusting 2015 record: should be coded as unbanded; in field was assigned duplicate band number
+band92_22[8761, "BandSize"]="U"
+band92_22[8761, "Code"]="unbanded"
+band92_22[8761, "Net"]="23"
+band92_22[8761, "Cr.Length"]=''
+
+weirdsize <- band92_22[band92_22$BandSize %in% c("unknown", "OTHER"),]
+# Mostly 2015 and 2019 records here, can adjust like we did above
 
 
 # Species names
@@ -197,6 +380,47 @@ band92_22$SpName <-  recode(band92_22$SpName, "american robin" = 'American Robin
 )
 levels(band92_22$SpName)
 
+# Look through blank sp names with destroyed bands
+bade <- band92_22[(band92_22$SPP=="BADE"),]
+# Most blanks can be converted to "Band Destroyed"; but a few records with bird processing data need to be combed through
+band92_22 <- band92_22 %>%
+  mutate(SpName=case_when(SPP=="BADE" & SpName=="" & Net==""~ "Band Destroyed",
+                          TRUE~SpName))
+
+# Work through assigning other blank species names, but ignore any destr
+noname <- band92_22[(band92_22$SpName==""),]
+levels(noname$SPP)
+
+noname <- noname %>% 
+  mutate(SpName = case_when(SpName=="" ~ 
+                              case_when(SPP=='AMRO' ~ "American Robin",
+                                        SPP=='ALFL' ~ "Alder Flycatcher",
+                                        SPP=='ATTW' ~ "American Three-toed Woodpecker",
+                                        SPP=='AGTW' ~ "American Green-winged Teal",
+                                        SPP=='AMKE' ~ "American Kestrel",
+                                        SPP=='AMPI' ~ "American Pipit",
+                                        SPP=='ARWA' ~ "Arctic Warbler",
+                                        SPP=='ATSP' ~ "American Tree Sparrow",
+                                        TRUE ~ SpName), 
+                            TRUE ~ SpName))
+
+
+
+
+# Work out weird band numbers, unbandeds with band numbers etc
+# check for undbanded codes with band numbers
+weirdband <- band92_22[(band92_22$Code=="unbanded" & band92_22$Band!=''),]
+# Record 4926 needs to have status changed to "dead" -- change this later in the data 
+# Recode some clear unbandeds
+
+band92_22 <- band92_22 %>% 
+  mutate(Band=case_when(Code=="unbanded"& BandSize=="U" & Band!='' ~ "",
+                        TRUE~Band))
+
+
+
+
+
 # UNRESOLVED: Check consistency of month entries
 unique(band92_22$Month)
 offmonth <- band92_22[band92_22$Month %in% c("", "1", "2", "3", "10", "11"),]
@@ -243,7 +467,7 @@ bands8 <- subset(band92_22, nchar(band92_22$Band)==8)
 bands7 <- subset(band92_22, nchar(band92_22$Band)==7)
 # One SCJU recap missing last two digits. This one cant be determined easily. Also string of size 1s from '94 systematically missing two digits, not sure where
 bands4 <- subset(band92_22, nchar(band92_22$Band)==4)
-bands2 <- subset(band92_22, nchar(band92_22$Band)==2)
+bands2 <- subset(band92_22, nchar(band92_22$Band)==2 )
 # Investigate 2013 records and 2000 records
 # 2013 BOCH recapture missing suffix band number.
 
@@ -321,7 +545,7 @@ band92_22[10852, "Time"]="12:00:00"
 band92_22[11223, "Time"]="12:00:00"
 
 
-
+# Initial check and clean: Age, Sex, front page fields ####
 # Age
 levels(band92_22$Age)
 
@@ -332,7 +556,7 @@ levels(band92_22$HA2)
 
 badHA1 <- band92_22[band92_22$HA1 %in% c("BAND", "BP/CP", "VM", "SS"),]
 unkHA1 <- band92_22[band92_22$HA1 %in% c("unk", "U"),]
-badHA2 <- band92_22[band92_22$HA2 %in% c("0", "3", ";"),]
+badHA2 <- band92_22[band92_22$HA2 %in% c("0", "3", ";", "BP/CP"),]
 
 # Let's screen some age/skull mismatches
 # Apply this to data from 2006-on, as numbering system for a lot of codes was changed in 2006
@@ -355,10 +579,32 @@ age.skull <- subset(band92_22, Year>=2006 & Age!="HY" & SK <"4" & SK !="")
 #Check some How Aged codes
 
 # Any U/unknown How Aged codes cab be changed to blank
-band92_22$HA1 <- recode(band92_22$HA1, 'unk'="", 'U'="", 'CP'="C", 'BP'="B", 'v'="V", 'JP'="J")
-band92_22$HA2 <- recode(band92_22$HA2, 'unk'="", 'U'="", 'CP'="C", 'BP'="B", 'v'="V", 'j'="J", '0'="0", '3'="3")
+band92_22$HA1 <- recode(band92_22$HA1, 'unk'="", 'U'="", 'CP'="C", 'BP'="B", 'v'="V", 'JP'="J", 's'="S")
+band92_22$HA2 <- recode(band92_22$HA2, 'unk'="", 'U'="", 'CP'="C", 'BP'="B", 'v'="V", 'j'="J", '0'="", '3'="")
 
 # CP/BP appears to be code used in 2015, ideally this should be changed to "B" or "C" respectively
+
+# Parsing out BP/CP code
+band92_22 <- band92_22 %>%
+  mutate(HA1 = case_when(HA1=="BP/CP" & CP %in% '1':'3'  ~ "C",
+                         TRUE~HA1),
+         HA1 = case_when(HA1== "BP/CP" & BP %in% '1':'4' ~ "B",
+                         TRUE~HA1),
+         HA2 = case_when(HA1=="VM" ~ "M", 
+                         TRUE~HA2),
+         HA1 = case_when(HA1=="VM" ~ "V",
+                         TRUE~HA1),
+         HA1 = as.factor(HA1),
+         HA2 = as.factor(HA2))
+
+band92_22 <- band92_22 %>%
+  mutate(HA2 = case_when(HA2=="BP/CP" & CP %in% '1':'3'  ~ "C",
+                         TRUE~HA2),
+         HA2 = case_when(HA2== "BP/CP" & BP %in% '1':'4' ~ "B",
+                         TRUE~HA2),
+         HA2 = as.factor(HA2))
+
+
 
 # Sex
 levels(band92_22$Sex)
@@ -382,7 +628,8 @@ levels(band92_22$HS2)
 
 unkHS1 <- band92_22[band92_22$HS1 %in% c("unk", "U"),]
 unkHS2 <- band92_22[band92_22$HS2 %in% c("unk", "U"),]
-badHS2 <- band92_22[band92_22$HS2 %in% c("0", "57"),]
+badHS1 <- band92_22[band92_22$HS1 %in% c("BP/CP", "PQ", "BP"),]
+badHS2 <- band92_22[band92_22$HS2 %in% c("0", "57", "BP/CP"),]
 
 band92_22$HS1 <- recode(band92_22$HS1, 'u'="", "U"="", "unk"="", "CP"="C" )
 band92_22$HS2 <- recode(band92_22$HS2, "U"="", "unk"="", "CP"="C", "57"="", "0"="", "BP"="B")
@@ -395,16 +642,64 @@ band92_22 <- band92_22 %>%
   mutate(Sex = case_when(Sex=="" & SPP!="BADE" & SPP!="BALO" ~ "U",
                          TRUE~Sex))
 
+# Parsing combined codes
+band92_22 <- band92_22 %>%
+  mutate(HS1 = case_when(HS1=="BP/CP" & CP %in% '1':'3'  ~ "C",
+                         HS1== "BP/CP" & BP %in% '1':'4' ~ "B",
+                         HS1=="BP" & BP %in% '1':'6' ~ "B",
+                         TRUE~HS1),
+         HS2 = case_when(HS1=="PQ" ~ "Q",
+                         TRUE~HS2),
+         HS1 = case_when(HS1=="PQ"~"P",
+                         TRUE~HS1),
+         HS1 = as.factor(HS1),
+         HS2 = as.factor(HS2))
+
+band92_22 <- band92_22 %>%
+  mutate(HS2 = case_when(HS2=="BP/CP" & CP %in% '1':'3'  ~ "C",
+                         HS2== "BP/CP" & BP %in% '1':'4' ~ "B",
+                         TRUE~HS2),
+         HS2=as.factor(HS2))
+         
 
 # Skull
 unique(band92_22$SK)
+# Some scores of 9, which were probably indistinguishable skulls. Just change to blank
+skull9 <- band92_22[band92_22$SK=="9",]
+
+band92_22$SK <- recode(band92_22$SK, "9"="")
 
 # Change skull to factor
-
 band92_22$SK <- as.factor(band92_22$SK)
 
 
+# Cloacal Protuberance
+unique(band92_22$CP)
+unkcp <- band92_22[band92_22$CP %in% c("9", "4"),]
+# Just a few CPs of 4, one of which corresponds with assigned sex of M by C, the others are unknown sex. These others should likely not have a CP score, but could spot check with data
 
+
+# Brood patch
+unique(band92_22$BP)
+badbp <- band92_22[band92_22$BP %in% c("6", "9", "50"),]
+# A lot of code 6s appear to be legitimate brood patches, not sure if typos or older coding. Some records are from as recent as 2017 when BP score system should be same as now.
+# A couple of records need verification with raw data
+
+# Specific issue: row 80257 is a full record of a banded redpoll that died during processing, and is listed as BADE. Capture details never recorded as unbanded. So need to split this into a BADE record and unbanded record
+# Test this in badbp df first
+
+row <- badbp[which(badbp$Code=="destroy"),] %>%
+  recode()
+badbp <- rbind(badbp, row)
+
+times=2
+
+badbp %>% 
+  slice(rep(row, times))
+
+badbp[rep(row,times),]
+
+datafix <- tibble(x=80257)
 
 
 
@@ -416,3 +711,32 @@ levels(band92_22$Culmen)
 
 # Mostly fixed! Make sure to convert to numeric
 # **PARTIALLY RESOLVED** Looks like there's a few measurements that need decimal places ... maybe double check in excel. Also an "AL" and "M"
+
+# Flag bad records####
+# To better catalogue issues I find with species disagreement, etc, will create a new column 
+
+band92_22$Bad_Data
+
+band92_22 <- band92_22 %>% 
+  mutate(Bad_Data=case_when(Year=="2015" & Band=='262137045' ~ "Recap Spp Disagreement",
+                            TRUE~Bad_Data
+))
+
+
+#
+#
+#
+
+# Specific adjustments by row number ####
+# # As certain problem records are encountered in cleaning, they can be indexed here
+
+band92_22[4926, "Status"]='5'
+
+# 
+#
+#
+
+# Delete specific bad data rows - FINAL STEP####
+
+# Rows to delete (insufficient capture + species data): 118508 118516 2759
+# Double check that these are still the same records (filter data by 'UNKN' spp)
